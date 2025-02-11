@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\TasksExport;
 use App\Mail\NewTaskMail;
 use App\Models\Task;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Maatwebsite\Excel\Facades\Excel;
+use PDF;
 
 class TaskController extends Controller
 {
@@ -22,10 +25,11 @@ class TaskController extends Controller
 	 */
 	public function index()
 	{
-		$id    = auth()->user()->id;
-		$name  = auth()->user()->name;
-		$email = auth()->user()->email;
-		return "ID: $id | Name: $name | Email: $email";
+		$user_id = auth()->user()->id;
+
+		$tasks = Task::where('user_id', $user_id)->paginate(10);
+
+		return view('task.index', ['tasks' => $tasks]);
 	}
 
 	/**
@@ -46,9 +50,14 @@ class TaskController extends Controller
 	 */
 	public function store(Request $request)
 	{
-		$task       = Task::create($request->all());
+		$data            = $request->all('task', 'deadline');
+		$data['user_id'] = auth()->user()->id;
+
+		$task = Task::create($data);
+
 		$user_email = auth()->user()->email;
 		Mail::to($user_email)->send(new NewTaskMail($task));
+
 		return redirect()->route('task.show', ['task' => $task->id]);
 	}
 
@@ -71,7 +80,10 @@ class TaskController extends Controller
 	 */
 	public function edit(Task $task)
 	{
-		//
+		if ($task->user_id != auth()->user()->id) {
+			return view('access-denied');
+		}
+		return view('task.edit', ['task' => $task]);
 	}
 
 	/**
@@ -83,7 +95,11 @@ class TaskController extends Controller
 	 */
 	public function update(Request $request, Task $task)
 	{
-		//
+		if ($task->user_id != auth()->user()->id) {
+			return view('access-denied');
+		}
+		$task->update($request->all());
+		return redirect()->route('task.show', ['task' => $task->id]);
 	}
 
 	/**
@@ -94,6 +110,25 @@ class TaskController extends Controller
 	 */
 	public function destroy(Task $task)
 	{
-		//
+		if ($task->user_id != auth()->user()->id) {
+			return view('access-denied');
+		}
+		$task->delete();
+		return redirect()->route('task.index');
+	}
+
+	public function exportation($file_ext)
+	{
+		if (in_array($file_ext, ['xlsx', 'csv', 'pdf'])) {
+			return Excel::download(new TasksExport, 'tasks_list.' . $file_ext);
+		}
+		return redirect()->route('task.index');
+	}
+
+	public function export()
+	{
+		$pdf = PDF::loadView('task.pdf', ['tasks' => auth()->user()->tasks()->get()]);
+		return $pdf->stream('tasks_list.pdf');
+		// return $pdf->download('tasks_list.pdf');
 	}
 }
